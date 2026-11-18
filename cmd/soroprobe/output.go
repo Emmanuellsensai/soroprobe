@@ -321,6 +321,10 @@ func renderInspect(w io.Writer, r *probe.InspectResult) error {
 		renderEntry(bw, s, "data "+d.Key, d)
 	}
 
+	if r.Asset != nil {
+		renderAsset(bw, s, r.Asset)
+	}
+
 	if r.InstanceStorage != nil {
 		encoded, err := json.MarshalIndent(r.InstanceStorage, "  ", "  ")
 		if err != nil {
@@ -340,6 +344,32 @@ func renderInspect(w io.Writer, r *probe.InspectResult) error {
 	}
 	bw.printf("%s\n", s.dim(fmt.Sprintf("checked at ledger %d", r.LatestLedger)))
 	return bw.err
+}
+
+// renderAsset prints the classic asset a Stellar Asset Contract wraps, and
+// the issuer flags that decide whether a holder can be frozen or clawed back.
+func renderAsset(bw *bufWriter, s styler, a *probe.AssetDetails) {
+	bw.printf("\n%s\n", s.bold("asset"))
+	bw.printf("  %-8s %s\n", "type", a.Type)
+	if a.Code != "" {
+		bw.printf("  %-8s %s\n", "code", a.Code)
+	}
+	if a.Issuer != "" {
+		bw.printf("  %-8s %s\n", "issuer", a.Issuer)
+	}
+	if a.Admin != "" {
+		bw.printf("  %-8s %s\n", "admin", a.Admin)
+	}
+	if a.IssuerFound != nil && *a.IssuerFound {
+		flags := "none set"
+		if len(a.IssuerFlags) > 0 {
+			flags = strings.Join(a.IssuerFlags, ", ")
+		}
+		bw.printf("  %-8s %s\n", "flags", flags)
+	}
+	if a.Note != "" {
+		bw.printf("  %s\n", s.dim("note: "+a.Note))
+	}
 }
 
 // renderExtendEstimates prints what it would cost to keep each entry alive.

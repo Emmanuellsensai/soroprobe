@@ -86,6 +86,14 @@ type InspectResult struct {
 	// Data holds any explicitly requested data entries.
 	Data []EntryReport `json:"data,omitempty"`
 
+	// Asset describes the classic asset behind a Stellar Asset Contract. Nil
+	// for Wasm contracts.
+	Asset *AssetDetails `json:"asset,omitempty"`
+
+	// sacStorage is the raw instance storage of a Stellar Asset Contract,
+	// kept so the asset can be decoded without reading the instance again.
+	sacStorage *xdr.ScMap
+
 	// InstanceStorage is the decoded instance storage map. These values live
 	// and die with the instance entry: they share its single TTL.
 	InstanceStorage any `json:"instance_storage,omitempty"`
@@ -194,6 +202,14 @@ func (p *Prober) inspectUncached(ctx context.Context, req InspectRequest) (*Insp
 		}
 		report.Summary = entrySummary(report.Describe(), dataThresholds)
 		result.Data = append(result.Data, report)
+	}
+
+	if result.Executable == "stellar_asset" {
+		asset, err := p.inspectAsset(ctx, result.sacStorage)
+		if err != nil {
+			return nil, err
+		}
+		result.Asset = asset
 	}
 
 	// Round two: the code entry, now that the Wasm hash is known.
@@ -352,6 +368,7 @@ func (p *Prober) readInstanceEntry(entry protocol.LedgerEntryResult, result *Ins
 		// Stellar Asset Contracts are implemented by the host itself, so there
 		// is no Wasm code entry to look up or to expire.
 		result.Executable = "stellar_asset"
+		result.sacStorage = instance.Storage
 	default:
 		result.Executable = instance.Executable.Type.String()
 	}

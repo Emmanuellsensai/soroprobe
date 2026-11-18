@@ -15,6 +15,7 @@ import (
 	"github.com/spf13/cobra"
 	"go.yaml.in/yaml/v3"
 
+	"github.com/soroworks/soroprobe/internal/abi"
 	"github.com/soroworks/soroprobe/internal/api"
 	"github.com/soroworks/soroprobe/internal/config"
 	"github.com/soroworks/soroprobe/internal/health"
@@ -373,6 +374,7 @@ func newCheckCmd(opts *options) *cobra.Command {
 	var reportPath string
 	var format string
 	var quiet bool
+	var standard string
 
 	cmd := &cobra.Command{
 		Use:   "check <contract-id> | check --file <checks.json>",
@@ -394,6 +396,14 @@ spec per line from a file, ignoring blank lines and lines starting with #, and
 combines them with --key. It applies to the single-contract form; --file
 entries carry their own data_keys.
 
+--standard verifies the contract's exported functions against a published
+interface; "sep41" is the token standard. The interface is read from the
+contract's Wasm on chain (or the configured SoroVault registry), each
+deviation fails its own check named standard:sep41:<function>, and the
+decimals, name and symbol functions are also simulated. Stellar Asset
+Contracts are skipped. It applies to the single-contract form; --file entries
+carry their own "standard".
+
 --file runs many checks at once, from a JSON file ("-" for stdin):
 
   {"checks": [
@@ -401,8 +411,8 @@ entries carry their own data_keys.
     {"name": "vault", "contract_id": "C...", "data_keys": ["sym:Admin"]}
   ]}
 
-Each entry takes name, contract_id, function, args, data_keys, data_durability
-and timeout — the same body POST /v1/checks accepts. timeout bounds a single
+Each entry takes name, contract_id, function, args, data_keys, data_durability,
+standard and timeout — the same body POST /v1/checks accepts. timeout bounds a single
 check, as a Go duration string ("45s"); a check that outlives it is reported as
 one that could not run, and the batch continues. --check-timeout supplies the
 default for entries that name none. With --file, the exit code is 2 if any
@@ -435,6 +445,15 @@ instead of hiding in the log. --json and --quiet suppress them.`,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			if err := checkQuietConflicts(quiet, opts.jsonOut, reportPath); err != nil {
 				return err
+			}
+			if standard != "" {
+				if file != "" {
+					return fmt.Errorf("give --standard with a contract ID, not with --file; --file entries take a \"standard\" field")
+				}
+				// Validated before any request is sent, so a typo costs nothing.
+				if _, err := abi.LookupStandard(standard); err != nil {
+					return err
+				}
 			}
 			outputFormat, err := selectOutputFormat(cmd, opts, format)
 			if err != nil {
@@ -474,6 +493,7 @@ instead of hiding in the log. --json and --quiet suppress them.`,
 				Expect:         expect,
 				DataKeys:       keys,
 				DataDurability: d,
+				Standard:       standard,
 			})
 			if err != nil {
 				return err
@@ -498,6 +518,8 @@ instead of hiding in the log. --json and --quiet suppress them.`,
 
 	cmd.Flags().StringVar(&function, "fn", "", "read-only function to simulate as a liveness probe")
 	cmd.Flags().StringArrayVar(&callArgs, "arg", nil, "argument for --fn, in type:value form (repeatable)")
+	cmd.Flags().StringVar(&standard, "standard", "",
+		fmt.Sprintf("verify the contract's interface against a standard (%s)", strings.Join(abi.StandardNames(), ", ")))
 	cmd.Flags().StringVar(&expect, "expect", "", "expected return value specification for --fn, in type:value form")
 	cmd.Flags().StringArrayVar(&dataKeys, "key", nil, "a contract data key to include in the TTL check (repeatable)")
 	cmd.Flags().StringVar(&keyFile, "key-file", "", "a file listing data keys for the TTL check, one spec per line (blank lines and # comments ignored)")

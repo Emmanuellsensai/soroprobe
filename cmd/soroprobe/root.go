@@ -37,6 +37,8 @@ type options struct {
 	// the live one, so a zero-value options still behaves like production.
 	newProber    proberFactory
 	abiFromChain bool
+	// builder rebuilds contracts for verify. Nil means git and docker.
+	builder builder
 }
 
 func newRootCmd() (*cobra.Command, *options) {
@@ -87,6 +89,8 @@ well-formed transaction, and that account need not exist or hold a balance.`,
 		newSimulateCmd(opts),
 		newInspectCmd(opts),
 		newCheckCmd(opts),
+		newCompatCmd(opts),
+		newVerifyCmd(opts),
 		newServeCmd(opts),
 		newVersionCmd(),
 	)

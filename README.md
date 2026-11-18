@@ -323,6 +323,21 @@ estimate cannot slip under the threshold by luck.
 
 Reads the contract's instance and code entries and reports expiration health.
 
+For a Stellar Asset Contract it also reports the asset behind it: the asset type,
+code and issuer, the contract's admin, and the issuer account's `AUTH_REQUIRED`,
+`AUTH_REVOCABLE` and `CLAWBACK` flags — the facts that decide whether a holder
+can be frozen or clawed back. If the issuer account is not on the ledger the
+report says so instead of guessing at flags. The same data is under `asset` in
+`--json` output and `GET /v1/inspect/{contract}`.
+
+```
+asset
+  type     credit_alphanum4
+  code     USDC
+  issuer   GA5Z…
+  flags    AUTH_REQUIRED, CLAWBACK
+```
+
 | Flag | Description |
 | --- | --- |
 | `--key <spec>` | A contract data key to inspect, in `type:value` form. Repeatable. |
@@ -475,6 +490,107 @@ not a reason to break a build. Only `critical`, `expired` and `missing` fail.
 functions from the ledger, and guessing a name would produce a failure that
 looks like a broken contract but is really a broken guess. Without `--fn` the
 simulation step is honestly reported as `SKIP`.
+
+#### Verifying a token interface: `--standard`
+
+`check --standard sep41 <contract-id>` verifies that the contract exports the
+[SEP-41](https://github.com/stellar/stellar-protocol/blob/master/ecosystem/sep-0041.md)
+token functions with the standard signatures. The interface is read from the
+contract's Wasm on chain (or from SoroVault when `--sorovault-url` is set).
+Argument names do not matter, only types: `Address` and `MuxedAddress` are the
+same kind.
+
+Each deviation — a missing function, a wrong argument count or type, a wrong
+return type — fails its own check named `standard:sep41:<function>`, so a CI log
+says exactly what is wrong. A contract with no deviations gets a single
+`standard:sep41` pass. `decimals`, `name` and `symbol` are also simulated, as
+`standard:sep41:<function>:simulate` checks: `decimals` must return a `u32` of at
+most 38 and `name` and `symbol` a non-empty string. Stellar Asset Contracts are
+implemented by the host and are skipped.
+
+```
+$ soroprobe check --standard sep41 C…
+  PASS  deployed               instance found, executable is wasm
+  FAIL  standard:sep41:burn    the function is not exported
+  PASS  standard:sep41:name:simulate  calling name returned "Token"
+```
+
+The same standard is available as `standard` in `--file` entries and as the
+`standard` query parameter of `GET /v1/check/{contract}`.
+
+### `soroprobe compat <old> <new>`
+
+Compares two versions of a contract's interface and fails on a breaking change,
+so an upgrade does not silently break the contracts and clients that call it.
+`<old>` is a contract ID (its Wasm is read from the ledger) or a `.wasm` file;
+`<new>` is the new `.wasm` file. Comparing two files needs no network.
+
+```
+$ soroprobe compat C… target/wasm32v1-none/release/token.wasm
+compat C… -> target/wasm32v1-none/release/token.wasm
+
+  BREAKING  fn transfer              argument 3 (amount) type changed from i128 to u64
+  ok        fn mint                  function added: fn mint(to: Address, amount: i128)
+  BREAKING  type Config              field fee type changed from u32 to u64
+
+result FAIL  2 breaking, 1 non-breaking
+```
+
+| Change | Breaking |
+| --- | --- |
+| Function removed, argument count or type changed, return type changed | yes |
+| Struct field removed, retyped or added | yes |
+| Enum or union case removed; enum value or union payload changed | yes |
+| Function added, argument renamed, enum or union case added | no |
+
+User-defined types are compared by structure, not by name, so renaming a type
+without changing its shape is not breaking, and struct fields are compared by
+name rather than position. Exit code 1 when anything is breaking; `--json`
+prints `{"old", "new", "breaking", "changes": [{"breaking", "subject", "detail"}]}`.
+
+### `soroprobe verify <contract-id>`
+
+Rebuilds a contract from source and checks that the Wasm it produces is the Wasm
+the contract is running — the on-chain half of "is this deployment really that
+repository at that commit?".
+
+| Flag | Description |
+| --- | --- |
+| `--source <repo>` | Git repository to build. Defaults to the contract's `source_repo` metadata. |
+| `--rev <rev>` | Commit, tag or branch. Defaults to the contract's `source_rev`, else `commit_hash`, metadata. |
+| `--image <image>` | Container image to build in. Defaults to the contract's `bldimg` metadata. |
+
+There is **no default image**: a rebuild is only as trustworthy as its
+toolchain, so the image comes from the contract's own metadata or from you.
+Prefer one pinned by digest (`name@sha256:…`); the report says whether it was,
+because a tag can move and a later rebuild may use a different compiler.
+
+```
+$ soroprobe verify C… --image ghcr.io/example/builder@sha256:0123…
+contract C…
+deployed 8608bb30…
+
+  source     https://github.com/example/token
+  rev        abc123
+  image      ghcr.io/example/builder@sha256:0123…  pinned by digest
+  rustc      rustc 1.91.0
+  stellar    stellar 25.0.0
+
+built artifacts
+  MATCH     8608bb30…  target/wasm32v1-none/release/token.wasm
+
+result VERIFIED  the deployed Wasm was reproduced from source
+```
+
+It clones the repository and checks out `--rev`, then runs `rustc --version`,
+`stellar --version` and `stellar contract build` in the image with `docker`, and
+hashes every `target/**/release/*.wasm`. Exit code 0 when at least one artifact
+matches the deployed hash, 1 when none does; `--json` prints the report.
+Needs `git` and `docker` on the `PATH`. This is the one command that runs other
+programs, and the build executes whatever the image and repository contain, so
+only verify sources and images you trust. Values starting with `-` are rejected
+for `--source`, `--rev` and `--image`, and metadata read from the contract is
+held to the same rule.
 
 ### `soroprobe serve`
 

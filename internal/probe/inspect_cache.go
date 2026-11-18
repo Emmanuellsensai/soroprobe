@@ -145,6 +145,15 @@ func cloneInspectResult(r *InspectResult) *InspectResult {
 		code := cloneEntryReport(*r.Code)
 		clone.Code = &code
 	}
+	if r.Asset != nil {
+		asset := *r.Asset
+		asset.IssuerFlags = append([]string(nil), r.Asset.IssuerFlags...)
+		if r.Asset.IssuerFound != nil {
+			found := *r.Asset.IssuerFound
+			asset.IssuerFound = &found
+		}
+		clone.Asset = &asset
+	}
 	return &clone
 }
 

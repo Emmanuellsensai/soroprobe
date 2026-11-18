@@ -34,6 +34,9 @@ type CheckRequest struct {
 	DataKeys []string `json:"data_keys,omitempty" yaml:"data_keys,omitempty"`
 	// DataDurability selects the durability DataKeys are read at.
 	DataDurability health.Durability `json:"data_durability,omitempty" yaml:"data_durability,omitempty"`
+	// Standard, when set, names a published interface (see abi.Standards)
+	// the contract's exported functions are verified against.
+	Standard string `json:"standard,omitempty" yaml:"standard,omitempty"`
 }
 
 // CheckOutcome is the result of one individual check.
@@ -110,6 +113,7 @@ func (p *Prober) checkSteps() []CheckStep {
 		&dataTTLStep{},
 		&simulateStep{},
 		&expectStep{p: p},
+		&standardStep{p: p},
 	}
 }
 
